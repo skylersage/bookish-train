@@ -491,7 +491,7 @@ function downloadPDF() {
 /* ============================
    WHATSAPP SHARE (shares PDF file)
    ============================ */
-function shareWhatsApp() {
+async function shareWhatsApp() {
   if (!lastResult) {
     document.getElementById('output').innerHTML = '<div class="error-box">' + t('errCalcValidFirst') + '</div>';
     return;
@@ -505,32 +505,40 @@ function shareWhatsApp() {
   tempNotice.textContent = t('whatsappPreparing');
   outputDiv.appendChild(tempNotice);
 
-  generatePDFBlob().then(blob => {
+  try {
+    const blob = await generatePDFBlob();
     const fileName = 'Village-Interest-Result.pdf';
     const file = new File([blob], fileName, { type: 'application/pdf' });
 
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      navigator.share({
-        files: [file],
-        title: t('title'),
-        text: t('whatsappHeader').replace(/\*/g, '')
-      }).then(() => {
+    // Chrome Android: try native share first
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({
+          files: [file],
+          title: t('title'),
+          text: t('whatsappHeader').replace(/\*/g, '')
+        });
         tempNotice.textContent = t('whatsappReady');
         setTimeout(() => { if (tempNotice.parentNode) tempNotice.remove(); }, 2500);
-      }).catch(err => {
-        console.warn('Share cancelled or failed:', err);
-     fallbackWhatsAppShare(blob, fileName, tempNotice);
-      });
-    } else {
-      fallbackWhatsAppShare(blob, fileName, tempNotice);
+        return;
+      } catch (shareErr) {
+        if (shareErr.name === 'AbortError') {
+          if (tempNotice.parentNode) tempNotice.remove();
+          return;
+        }
+        console.warn('Native share failed:', shareErr);
+      }
     }
-  }).catch(err => {
+
+    fallbackWhatsAppShare(blob, fileName, tempNotice);
+
+  } catch (err) {
     console.error('PDF generation error:', err);
     if (tempNotice.parentNode) tempNotice.remove();
     outputDiv.innerHTML = '<div class="error-box">' + t('errWhatsappPdfFail') + '</div>';
     setTimeout(() => { outputDiv.innerHTML = originalHTML; }, 3000);
-  });
-}
+  }
+     }
 
 function fallbackWhatsAppShare(blob, fileName, tempNotice) {
   const url = URL.createObjectURL(blob);
@@ -540,22 +548,26 @@ function fallbackWhatsAppShare(blob, fileName, tempNotice) {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
 
   const message = t('whatsappHeader') + '\n\n' +
     '📎 ' + fileName + '\n' +
-    (currentLang === 'hi' ? '(डाउनलोड की गई PDF फ़ाइल संलग्न करें)' :
-     currentLang === 'ne' ? '(डाउनलोड गरिएको PDF फाइल संलग्न गर्नुहोस्)' :
-     '(Please attach the downloaded PDF file)');
+    (currentLang === 'hi' ? '(PDF डाउनलोड हो गई — कृपया इसे संलग्न करें)' :
+     currentLang === 'ne' ? '(PDF डाउनलोड भयो — कृपया संलग्न गर्नुहोस्)' :
+     '(PDF downloaded — please attach it)');
 
   const whatsappUrl = 'https://wa.me/?text=' + encodeURIComponent(message);
 
   setTimeout(() => {
     window.open(whatsappUrl, '_blank');
-    if (tempNotice) tempNotice.remove();
+    if (tempNotice) {
+      tempNotice.textContent = currentLang === 'hi' ? '✅ PDF डाउनलोड हो गई' :
+                                currentLang === 'ne' ? '✅ PDF डाउनलोड भयो' :
+                                '✅ PDF downloaded';
+      setTimeout(() => { if (tempNotice.parentNode) tempNotice.remove(); }, 4000);
+    }
   }, 800);
-}
-
+         }
 /* Initialize */
 document.addEventListener('DOMContentLoaded', function() {
   setLanguage('en');
